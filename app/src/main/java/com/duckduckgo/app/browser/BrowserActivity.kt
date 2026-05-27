@@ -25,6 +25,7 @@ import android.content.Intent.EXTRA_TEXT
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
+import android.os.CountDownTimer
 import android.os.Handler
 import android.os.Looper
 import android.os.Message
@@ -152,6 +153,9 @@ import logcat.logcat
 import javax.inject.Inject
 
 // open class so that we can test BrowserApplicationStateInfo
+private var sessionTimer: CountDownTimer? = null
+private var isExtraTimeUsed = false // Uzatma hakkı kullanıldı mı?
+private val MAX_EXTRA_TIME_MS = 5 * 60 * 1000L // Max 5 dakika (milisaniye cinsinden)
 @HasMemberInjections
 @InjectWith(ActivityScope::class)
 open class BrowserActivity : DuckDuckGoActivity() {
@@ -419,6 +423,9 @@ open class BrowserActivity : DuckDuckGoActivity() {
                 showSnackbar(message)
                 intent?.removeExtra(DELETED_TAB_COUNT_EXTRA)
             }
+            showSessionTimerDialog()
+        }else{
+            showSessionTimerDialog()
         }
     }
 
@@ -1786,6 +1793,80 @@ open class BrowserActivity : DuckDuckGoActivity() {
         if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
             viewModel.sendPixelEventForLandscapeOrientation()
         }
+    }
+    private fun showSessionTimerDialog() {
+        // Kendi yazdığımız XML'i koda tanıtıyoruz
+        val view = layoutInflater.inflate(R.layout.dialog_session_timer, null)
+        val inputField = view.findViewById<android.widget.EditText>(R.id.timerInput)
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setView(view) // Artık standart görünüm değil, bizim XML görünecek
+            .setCancelable(false)
+            .setPositiveButton("BAŞLAT") { _, _ ->
+                val minutes = inputField.text.toString().toLongOrNull() ?: 10
+                startFocusTimer(minutes)
+            }
+            .setNegativeButton("ÇIKIŞ") { _, _ ->
+                // Eğer odaklanmayacaksa uygulamayı kapatıyoruz
+                finishAffinity()
+            }
+            .create()
+            .apply {
+                show()
+                // Buton rengini DuckDuckGo turuncusuna çekmek istersen (opsiyonel):
+                getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setTextColor(android.graphics.Color.parseColor("#DE5833"))
+            }
+    }
+
+    private fun startFocusTimer(minutes: Long) {
+        sessionTimer?.cancel()
+        val totalTimeMs = minutes * 60 * 1000
+
+        sessionTimer = object : CountDownTimer(totalTimeMs, 1000) {
+            override fun onTick(millisUntilFinished: Long) {
+                // Kapanmaya tam 15 saniye (15000 ms) kaldığında uyarı ver
+                // 14.000 ile 15.000 arasındaysa bir kez tetiklenmesi için:
+                if (millisUntilFinished in 14500..15500) {
+                    Toast.makeText(applicationContext, "Dikkat! 15 saniye içinde kapanıyor.", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            override fun onFinish() {
+                if (!isExtraTimeUsed) {
+                    showExtraTimeDialog() // Eğer henüz uzatma kullanılmadıysa sor
+                } else {
+                    exitAppWithToast() // Uzatma hakkı bitmişse kapat
+                }
+            }
+        }.start()
+    }
+    private fun showExtraTimeDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_extra_time, null)
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setView(view)
+            .setCancelable(false)
+            .setPositiveButton("5 DK UZAT") { _, _ ->
+                isExtraTimeUsed = true
+                startFocusTimer(5)
+                // Daha şık bir bildirim
+                Toast.makeText(this, "Ek süre tanımlandı. İyi çalışmalar!", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("ŞİMDİ KAPAT") { _, _ ->
+                exitAppWithToast()
+            }
+            .create()
+            .apply {
+                show()
+                // Buton renklerini özelleştirelim
+                getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setTextColor(android.graphics.Color.parseColor("#DE5833"))
+                getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE).setTextColor(android.graphics.Color.GRAY)
+            }
+    }
+
+    private fun exitAppWithToast() {
+        Toast.makeText(applicationContext, "Oturum sona erdi. Görüşmek üzere!", Toast.LENGTH_LONG).show()
+        finishAffinity()
     }
 }
 
