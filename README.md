@@ -1,3 +1,16 @@
+# DuckDuckGo Android (with Added Focus Features)
+
+> **Note:** This is a personal fork of the official DuckDuckGo Android repository. A small set of specific features was added to the browser to turn it into a strict personal productivity and focus tool. 
+
+### 🚀 Features Added
+* **Focus Session Timer:** An autonomous 2-minute timer starts when the app resumes. Users can set a custom time via a one-time Material Design FAB, after which the app strictly closes itself.
+* **Basic Site Blocker:** Intercepts and blocks a predefined list of distracting websites at the network layer (`shouldInterceptRequest`).
+* **YouTube Ad-Skipper:** A lightweight JavaScript injection to automatically skip video ads.
+
+---
+
+*(The original DuckDuckGo Android README continues below)*
+
 # DuckDuckGo Android
 
 Welcome to our android application. We are excited to engage the community in development, see [CONTRIBUTING.md](CONTRIBUTING.md).

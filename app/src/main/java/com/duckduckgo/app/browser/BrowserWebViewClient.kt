@@ -657,6 +657,7 @@ class BrowserWebViewClient @Inject constructor(
                     start = null
                 }
             }
+            injectYoutubeAdBlockerIfNecessary(webView, url)
         }
     }
 
@@ -932,6 +933,23 @@ class BrowserWebViewClient @Inject constructor(
         // dedicated scope for request count timeout jobs (static, to be shared across all instances)
         @SuppressLint("NoHardcodedCoroutineDispatcher")
         private val timeoutScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    }
+    private fun injectYoutubeAdBlockerIfNecessary(webView: WebView, url: String?) {
+        if (url?.contains("youtube.com") == true) {
+            val youtubeAdBlockerJs = """
+            javascript:(function() {
+                setInterval(function() {
+                    var skipButton = document.querySelector('.ytp-ad-skip-button, .ytp-ad-skip-button-modern, .ytp-skip-ad-button');
+                    if (skipButton) { skipButton.click(); }
+                    
+                    var adVideo = document.querySelector('.ad-showing video');
+                    if (adVideo) { adVideo.currentTime = adVideo.duration; }
+                }, 1000);
+            })();
+        """.trimIndent()
+
+            webView.evaluateJavascript(youtubeAdBlockerJs, null)
+        }
     }
 }
 

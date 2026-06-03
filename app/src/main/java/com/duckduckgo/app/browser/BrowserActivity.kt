@@ -152,10 +152,6 @@ import logcat.asLog
 import logcat.logcat
 import javax.inject.Inject
 
-// open class so that we can test BrowserApplicationStateInfo
-private var sessionTimer: CountDownTimer? = null
-private var isExtraTimeUsed = false // Uzatma hakkı kullanıldı mı?
-private val MAX_EXTRA_TIME_MS = 5 * 60 * 1000L // Max 5 dakika (milisaniye cinsinden)
 @HasMemberInjections
 @InjectWith(ActivityScope::class)
 open class BrowserActivity : DuckDuckGoActivity() {
@@ -423,10 +419,13 @@ open class BrowserActivity : DuckDuckGoActivity() {
                 showSnackbar(message)
                 intent?.removeExtra(DELETED_TAB_COUNT_EXTRA)
             }
-            showSessionTimerDialog()
-        }else{
-            showSessionTimerDialog()
         }
+        addTimeExtensionButton()
+    }
+    override fun onResume() {
+        super.onResume() // Bunu çağırmazsak Android uygulamayı çökertir!
+
+        startSessionTimer(180 * 1000L)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -1794,79 +1793,113 @@ open class BrowserActivity : DuckDuckGoActivity() {
             viewModel.sendPixelEventForLandscapeOrientation()
         }
     }
-    private fun showSessionTimerDialog() {
-        // Kendi yazdığımız XML'i koda tanıtıyoruz
-        val view = layoutInflater.inflate(R.layout.dialog_session_timer, null)
-        val inputField = view.findViewById<android.widget.EditText>(R.id.timerInput)
+    // =======================================================
+    // --- ODAKLANMA MODU MOTORU (TÜM FONKSİYONLAR BURADA) ---
+    // =======================================================
 
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setView(view) // Artık standart görünüm değil, bizim XML görünecek
-            .setCancelable(false)
-            .setPositiveButton("BAŞLAT") { _, _ ->
-                val minutes = inputField.text.toString().toLongOrNull() ?: 10
-                startFocusTimer(minutes)
-            }
-            .setNegativeButton("ÇIKIŞ") { _, _ ->
-                // Eğer odaklanmayacaksa uygulamayı kapatıyoruz
-                finishAffinity()
-            }
-            .create()
-            .apply {
-                show()
-                // Buton rengini DuckDuckGo turuncusuna çekmek istersen (opsiyonel):
-                getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setTextColor(android.graphics.Color.parseColor("#DE5833"))
-            }
-    }
+    private var focusTimer: android.os.CountDownTimer? = null
+    private var isExtensionUsed = false
 
-    private fun startFocusTimer(minutes: Long) {
-        sessionTimer?.cancel()
-        val totalTimeMs = minutes * 60 * 1000
+    // BUTONU KONTROL EDEBİLMEK İÇİN REFERANSINI BURADA TUTUYORUZ
+    private var timeExtensionFab: com.google.android.material.floatingactionbutton.FloatingActionButton? = null
 
-        sessionTimer = object : CountDownTimer(totalTimeMs, 1000) {
+
+    private fun startSessionTimer(timeInMillis: Long) {
+        focusTimer?.cancel()
+
+        focusTimer = object : android.os.CountDownTimer(timeInMillis, 1000) {
             override fun onTick(millisUntilFinished: Long) {
-                // Kapanmaya tam 15 saniye (15000 ms) kaldığında uyarı ver
-                // 14.000 ile 15.000 arasındaysa bir kez tetiklenmesi için:
+                // Kapanmaya 15 saniye kala uyarı ver
                 if (millisUntilFinished in 14500..15500) {
-                    Toast.makeText(applicationContext, "Dikkat! 15 saniye içinde kapanıyor.", Toast.LENGTH_SHORT).show()
+                    android.widget.Toast.makeText(this@BrowserActivity, "⏳ Dikkat! Oturum 15 saniye içinde kapanıyor.", android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
 
             override fun onFinish() {
-                if (!isExtraTimeUsed) {
-                    showExtraTimeDialog() // Eğer henüz uzatma kullanılmadıysa sor
+                // Süre dolduğunda artık köşedeki butona da ihtiyacımız yok, onu gizle
+                timeExtensionFab?.visibility = android.view.View.GONE
+
+                if (isExtensionUsed) {
+                    android.widget.Toast.makeText(this@BrowserActivity, "🛑 Uzatma süren de bitti! Uygulama kapatılıyor.", android.widget.Toast.LENGTH_LONG).show()
+                    finishAffinity() // Uygulamayı tamamen kapatır
                 } else {
-                    exitAppWithToast() // Uzatma hakkı bitmişse kapat
+                    showTimeUpDialog()
                 }
             }
         }.start()
     }
-    private fun showExtraTimeDialog() {
-        val view = layoutInflater.inflate(R.layout.dialog_extra_time, null)
 
-        androidx.appcompat.app.AlertDialog.Builder(this)
-            .setView(view)
+    private fun showTimeUpDialog() {
+        android.app.AlertDialog.Builder(this@BrowserActivity)
+            .setTitle("⏳ Süre Doldu!")
+            .setMessage("Odaklanma vaktin geldi. Uygulamayı kapatmak ister misin, yoksa son bir 5 dakika uzatma hakkını kullanmak mı istersin?")
             .setCancelable(false)
-            .setPositiveButton("5 DK UZAT") { _, _ ->
-                isExtraTimeUsed = true
-                startFocusTimer(5)
-                // Daha şık bir bildirim
-                Toast.makeText(this, "Ek süre tanımlandı. İyi çalışmalar!", Toast.LENGTH_SHORT).show()
+            .setPositiveButton("5 Dakika Ekle (Son Hak)") { dialog, _ ->
+                isExtensionUsed = true
+                startSessionTimer(5 * 60 * 1000L)
+                dialog.dismiss()
             }
-            .setNegativeButton("ŞİMDİ KAPAT") { _, _ ->
-                exitAppWithToast()
+            .setNegativeButton("Şimdi Kapat") { _, _ ->
+                finishAffinity()
             }
-            .create()
-            .apply {
-                show()
-                // Buton renklerini özelleştirelim
-                getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setTextColor(android.graphics.Color.parseColor("#DE5833"))
-                getButton(androidx.appcompat.app.AlertDialog.BUTTON_NEGATIVE).setTextColor(android.graphics.Color.GRAY)
-            }
+            .show()
     }
 
-    private fun exitAppWithToast() {
-        Toast.makeText(applicationContext, "Oturum sona erdi. Görüşmek üzere!", Toast.LENGTH_LONG).show()
-        finishAffinity()
+    private fun showManualTimeEntryDialog() {
+        val context = this@BrowserActivity
+
+        val textInputLayout = com.google.android.material.textfield.TextInputLayout(context).apply {
+            hint = "Dakika (Örn: 15)"
+            boxBackgroundMode = com.google.android.material.textfield.TextInputLayout.BOX_BACKGROUND_OUTLINE
+            setPadding(60, 40, 60, 0)
+        }
+
+        val input = com.google.android.material.textfield.TextInputEditText(context).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+        }
+        textInputLayout.addView(input)
+
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(context)
+            .setTitle("⏱️ Özel Süre Belirle")
+            .setMessage("Odaklanmak için kaç dakikaya ihtiyacın var?")
+            .setView(textInputLayout)
+            .setPositiveButton("Süreyi Başlat") { _, _ ->
+                val minutesStr = input.text.toString()
+                if (minutesStr.isNotEmpty()) {
+                    val minutes = minutesStr.toLong()
+                    startSessionTimer(minutes * 60 * 1000L)
+                    android.widget.Toast.makeText(context, "⏳ $minutes dakikalık yeni oturum başladı!", android.widget.Toast.LENGTH_SHORT).show()
+
+                    // SÜRE BAŞARIYLA GİRİLDİĞİNDE BUTONU EKRANDAN YOK ET!
+                    timeExtensionFab?.visibility = android.view.View.GONE
+                }
+            }
+            .setNegativeButton("İptal", null)
+            .show()
+    }
+
+    private fun addTimeExtensionButton() {
+        val rootLayout = findViewById<android.view.ViewGroup>(android.R.id.content)
+
+        timeExtensionFab = com.google.android.material.floatingactionbutton.FloatingActionButton(this@BrowserActivity).apply {
+            setImageResource(android.R.drawable.ic_lock_idle_alarm)
+            backgroundTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.parseColor("#DE5833"))
+            imageTintList = android.content.res.ColorStateList.valueOf(android.graphics.Color.WHITE)
+            compatElevation = 12f
+
+            setOnClickListener { showManualTimeEntryDialog() }
+        }
+
+        val params = android.widget.FrameLayout.LayoutParams(
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.widget.FrameLayout.LayoutParams.WRAP_CONTENT
+        ).apply {
+            gravity = android.view.Gravity.BOTTOM or android.view.Gravity.END
+            bottomMargin = 250
+            rightMargin = 60
+        }
+
+        rootLayout.addView(timeExtensionFab, params)
     }
 }
 
